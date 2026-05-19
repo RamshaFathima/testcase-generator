@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Chatbot Test Case Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f5f5f5;
+  color: #111;
+  font-size: 14px;
+  padding-bottom: 80px;
+}
+.container { max-width: 860px; margin: 0 auto; padding: 24px 16px; }
+h1 { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
+.card {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+  margin-bottom: 10px;
+}
+input[type=text], input[type=number], textarea, select {
+  border: 1px solid #d4d4d4;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input[type=text]:focus, input[type=number]:focus, textarea:focus { border-color: #888; }
+textarea { resize: vertical; min-height: 90px; }
+.btn {
+  border: none;
+  border-radius: 4px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: #111; color: #fff; }
+.btn-secondary { background: #fff; border: 1px solid #d4d4d4; color: #111; }
+.btn-sm { padding: 6px 12px; font-size: 13px; }
+.btn-full { width: 100%; text-align: center; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row-wrap { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #f3f4f6; border: 1px solid #e5e5e5; border-radius: 100px;
+  padding: 4px 10px; font-size: 12px; color: #444;
+}
+.pill button {
+  background: none; border: none; cursor: pointer; font-size: 14px;
+  line-height: 1; color: #888; padding: 0;
+}
+.pill button:hover { color: #111; }
+.pills-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+/* category grid */
+.cat-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; }
+.cat-grid label { font-size: 13px; color: #333; }
+.cat-grid input[type=number] { width: 70px; text-align: center; }
+.cat-total {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid #e5e5e5; padding-top: 10px; margin-top: 4px;
+  font-weight: 600;
+}
+.total-over { color: #dc2626; }
+
+/* progress */
+#progress-section { display: none; }
+.prog-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+}
+.prog-item:last-child { border-bottom: none; }
+.prog-icon { width: 18px; text-align: center; }
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid #d4d4d4; border-top-color: #111;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* review */
+#review-section { display: none; }
+.category-group { margin-bottom: 16px; }
+.cat-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 6px;
+  cursor: pointer; user-select: none;
+  font-weight: 600; font-size: 13px;
+}
+.cat-header .arrow { font-size: 10px; color: #888; }
+.cat-body { padding-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.cat-body.collapsed { display: none; }
+
+/* test case card */
+.tc-card {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 16px;
+  position: relative;
+}
+.tc-card-header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.tc-case-id { margin-left: auto; font-size: 11px; color: #aaa; font-family: monospace; }
+.badge {
+  font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 100px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.badge-cat { background: #f0f0f0; color: #555; }
+.badge-pending { background: #f3f4f6; color: #555; }
+.badge-approved { background: #f0fdf4; color: #16a34a; }
+.badge-regenerating { background: #fefce8; color: #ca8a04; }
+.badge-rejected { background: #fef2f2; color: #dc2626; }
+
+.tc-turn-block { margin-bottom: 12px; }
+.tc-turn-label { font-size: 11px; font-weight: 600; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+.field-label { font-size: 12px; color: #666; margin-bottom: 4px; margin-top: 8px; }
+.sentinel-chips { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.sentinel-chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 4px; cursor: pointer;
+  border: 1px solid #d4d4d4; background: #f9f9f9; color: #555;
+}
+.sentinel-chip:hover { background: #f0f0f0; }
+
+.tc-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.btn-approve { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.btn-reject { background: #fff; border: 1px solid #d4d4d4; color: #111; }
+
+/* spinner overlay on card */
+.card-overlay {
+  position: absolute; inset: 0; background: rgba(255,255,255,0.85);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; z-index: 2; font-size: 13px; color: #888; gap: 10px;
+}
+.overlay-spinner { width: 20px; height: 20px; border-width: 3px; }
+
+/* export bar */
+#export-bar {
+  display: none; position: fixed; bottom: 0; left: 0; right: 0;
+  background: #fff; border-top: 1px solid #e5e5e5;
+  padding: 12px 24px; z-index: 10;
+}
+.export-inner {
+  max-width: 860px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+}
+#export-count { font-size: 13px; color: #555; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Chatbot Test Case Generator</h1>
+
+  <!-- CONFIGURATION -->
+  <div class="card" id="config-card">
+    <!-- Knowledge Base -->
+    <div class="section-label">Knowledge Base</div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="file" id="kb-files" multiple accept=".pdf,.doc,.docx,.md,.csv,.txt" style="flex:1" />
+    </div>
+    <div class="row" style="margin-bottom:4px">
+      <input type="text" id="url-input" placeholder="https://..." style="flex:1" />
+      <button class="btn btn-secondary btn-sm" onclick="addUrl()">Add URL</button>
+    </div>
+    <div class="pills-row" id="source-pills"></div>
+
+    <hr style="border:none;border-top:1px solid #e5e5e5;margin:18px 0" />
+
+    <!-- Chatbot Context -->
+    <div class="section-label">Chatbot Context</div>
+    <div class="field-label">Agent System Prompt</div>
+    <textarea id="system-prompt" placeholder="Paste the chatbot's full system prompt here…"></textarea>
+    <div class="field-label" style="margin-top:10px">Extra Generation Rules (guardrails)</div>
+    <textarea id="extra-prompt" placeholder="Any additional rules for test generation (optional)…" style="min-height:60px"></textarea>
+
+    <hr style="border:none;border-top:1px solid #e5e5e5;margin:18px 0" />
+
+    <!-- Test Settings -->
+    <div class="section-label">Test Settings</div>
+    <div class="row" style="margin-bottom:16px">
+      <label style="font-size:13px;color:#333;white-space:nowrap">Number of turns per case</label>
+      <input type="number" id="turns-input" min="1" max="10" value="1" style="width:70px;margin-left:auto" />
+    </div>
+
+    <div class="cat-grid" id="cat-grid"></div>
+
+    <div style="margin-top:14px">
+      <button class="btn btn-primary btn-full" id="generate-btn" onclick="startGeneration()">Generate Test Cases</button>
+      <div id="gen-warning" style="font-size:12px;color:#ca8a04;margin-top:6px;display:none"></div>
+    </div>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="card" id="progress-section">
+    <div class="cat-header" onclick="toggleProgress()" style="margin:-20px -20px 0;border:none;border-radius:6px 6px 0 0;background:#fff">
+      <span class="section-label" style="margin:0">Generating…</span>
+      <span class="arrow" id="arrow-progress">▼</span>
+    </div>
+    <div id="progress-list" style="margin-top:16px"></div>
+  </div>
+
+  <!-- REVIEW -->
+  <div id="review-section">
+    <div class="section-label" style="margin-bottom:12px">Review Test Cases</div>
+    <div id="review-groups"></div>
+  </div>
+</div>
+
+<!-- EXPORT BAR -->
+<div id="export-bar">
+  <div class="export-inner">
+    <span id="export-count">0 of 0 cases approved</span>
+    <div class="row" style="gap:8px">
+      <input type="text" id="export-filename" placeholder="test_cases" style="width:180px;padding:8px 10px" />
+      <span style="font-size:13px;color:#888;white-space:nowrap">.csv</span>
+      <button class="btn btn-primary" onclick="exportCSV()">Export Approved CSV</button>
+    </div>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const CATEGORIES = [
+  { key: 'factual_accuracy',   label: 'Factual Accuracy',     prefix: 'FA', count: 15 },
+  { key: 'process_guidance',   label: 'Process & Guidance',   prefix: 'PG', count: 7  },
+  { key: 'escalation_handoff', label: 'Escalation & Handoff', prefix: 'EH', count: 7  },
+  { key: 'safety_check',       label: 'Safety Check',         prefix: 'SC', count: 6  },
+  { key: 'tone_style',         label: 'Tone and Style',       prefix: 'TS', count: 5  },
+  { key: 'edge_cases',         label: 'Edge Cases',           prefix: 'EC', count: 5  },
+  { key: 'critical_path',      label: 'Critical Path',        prefix: 'CP', count: 5  },
+];
+
+const state = {
+  sources: [],    // { type, name, content }
+  testCases: [],  // { case_id, slug, categoryKey, categoryLabel, prefix, status, turns:[{input,expected}] }
+};
+
+// ── Build category grid ──────────────────────────────────────────
+(function buildCatGrid() {
+  const grid = document.getElementById('cat-grid');
+  CATEGORIES.forEach(cat => {
+    const label = document.createElement('label');
+    label.textContent = cat.label;
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.min = '0'; inp.value = cat.count;
+    inp.id = `cat-${cat.key}`;
+    inp.addEventListener('input', updateTotal);
+    inp.addEventListener('blur', () => {
+      if (parseInt(inp.value) < 0 || inp.value === '') inp.value = 0;
+      updateTotal();
+    });
+    grid.appendChild(label);
+    grid.appendChild(inp);
+  });
+  // total row
+  const totalDiv = document.createElement('div');
+  totalDiv.className = 'cat-total';
+  totalDiv.innerHTML = `<span>Total</span><span id="total-display">50 / 50</span>`;
+  grid.appendChild(totalDiv);
+  updateTotal();
+})();
+
+function getTotal() {
+  return CATEGORIES.reduce((s, c) => s + (parseInt(document.getElementById(`cat-${c.key}`)?.value) || 0), 0);
+}
+
+function updateTotal() {
+  const t = getTotal();
+  const el = document.getElementById('total-display');
+  el.textContent = `${t} / 50`;
+  el.className = t > 50 || t === 0 ? 'total-over' : '';
+  document.getElementById('generate-btn').disabled = t > 50 || t === 0;
+}
+
+// ── Knowledge base sources ───────────────────────────────────────
+document.getElementById('kb-files').addEventListener('change', async function() {
+  for (const file of this.files) {
+    const content = await extractFileText(file);
+    state.sources.push({ type: 'file', name: file.name, content });
+    renderPills();
+  }
+  this.value = '';
+});
+
+function addUrl() {
+  const inp = document.getElementById('url-input');
+  const url = inp.value.trim();
+  if (!url) return;
+  state.sources.push({ type: 'url', name: url, content: `[Reference URL]: ${url}` });
+  inp.value = '';
+  renderPills();
+}
+
+function removeSource(i) {
+  state.sources.splice(i, 1);
+  renderPills();
+}
+
+function renderPills() {
+  const row = document.getElementById('source-pills');
+  row.innerHTML = '';
+  state.sources.forEach((s, i) => {
+    const pill = document.createElement('div');
+    pill.className = 'pill';
+    pill.innerHTML = `<span title="${s.name}">${s.name.length > 40 ? s.name.slice(0,40)+'…' : s.name}</span>
+      <button onclick="removeSource(${i})" title="Remove">×</button>`;
+    row.appendChild(pill);
+  });
+}
+
+async function extractFileText(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.pdf')) {
+    return await extractPDF(file);
+  } else if (name.endsWith('.docx') || name.endsWith('.doc')) {
+    return await extractDOCX(file);
+  } else {
+    return await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result);
+      r.onerror = rej;
+      r.readAsText(file);
+    });
+  }
+}
+
+async function extractPDF(file) {
+  const ab = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    pages.push(tc.items.map(it => it.str).join(' '));
+  }
+  return pages.join('\n');
+}
+
+async function extractDOCX(file) {
+  const ab = await file.arrayBuffer();
+  const result = await mammoth.extractRawText({ arrayBuffer: ab });
+  return result.value;
+}
+
+function getKnowledgeText() {
+  return state.sources.map(s => s.content).join('\n\n').slice(0, 15000);
+}
+
+// ── Generation ───────────────────────────────────────────────────
+async function startGeneration() {
+  const systemPrompt = document.getElementById('system-prompt').value.trim();
+  const extraPrompt = document.getElementById('extra-prompt').value.trim();
+  const turns = parseInt(document.getElementById('turns-input').value) || 1;
+  const knowledgeText = getKnowledgeText();
+
+  if (!systemPrompt) {
+    const w = document.getElementById('gen-warning');
+    w.textContent = 'System prompt is empty — generating without context.';
+    w.style.display = 'block';
+    setTimeout(() => { w.style.display = 'none'; }, 4000);
+  }
+
+  state.testCases = [];
+  document.getElementById('review-section').style.display = 'none';
+  document.getElementById('review-groups').innerHTML = '';
+  document.getElementById('export-bar').style.display = 'none';
+
+  // Build progress list
+  const progSection = document.getElementById('progress-section');
+  const progList = document.getElementById('progress-list');
+  progSection.style.display = 'block';
+  progList.innerHTML = '';
+
+  const activeCats = CATEGORIES.filter(c => (parseInt(document.getElementById(`cat-${c.key}`)?.value) || 0) > 0);
+  activeCats.forEach(cat => {
+    const div = document.createElement('div');
+    div.className = 'prog-item';
+    div.id = `prog-${cat.key}`;
+    div.innerHTML = `<span class="prog-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#d4d4d4" stroke-width="1.5"/></svg></span><span>${cat.label} (${document.getElementById(`cat-${cat.key}`).value})</span>`;
+    progList.appendChild(div);
+  });
+
+  document.getElementById('generate-btn').disabled = true;
+  document.getElementById('review-section').style.display = 'block';
+
+  for (const cat of activeCats) {
+    const count = parseInt(document.getElementById(`cat-${cat.key}`).value) || 0;
+    setProgState(cat.key, 'active', cat.label, count);
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt, extraPrompt, knowledgeText, categoryLabel: cat.label, count, turns }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      assignAndRender(cat, data.testCases);
+      setProgState(cat.key, 'done', cat.label, count);
+    } catch (err) {
+      setProgState(cat.key, 'error', cat.label, count, err.message);
+    }
+  }
+
+  progSection.style.display = 'none';
+  document.getElementById('generate-btn').disabled = false;
+  updateTotal();
+  updateExportBar();
+}
+
+function setProgState(key, state, label, count, err) {
+  const el = document.getElementById(`prog-${key}`);
+  if (!el) return;
+  const icons = {
+    active: '<span class="spinner"></span>',
+    done: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#16a34a"/><path d="M5 8l2.5 2.5L11 5.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    error: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#dc2626"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  };
+  const suffix = state === 'error' ? ` — ${err}` : '';
+  el.innerHTML = `<span class="prog-icon">${icons[state]}</span><span>${label} (${count})${suffix}</span>`;
+}
+
+function normalizeSlug(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+}
+
+function assignAndRender(cat, rawCases) {
+  const usedSlugs = new Set();
+  rawCases.forEach((tc, i) => {
+    let slug = normalizeSlug(tc.slug) || `case_${i + 1}`;
+    if (usedSlugs.has(slug)) {
+      let n = 2;
+      while (usedSlugs.has(`${slug}_${n}`)) n++;
+      slug = `${slug}_${n}`;
+    }
+    usedSlugs.add(slug);
+    const case_id = `${cat.prefix}_${slug}`;
+    const turns = (tc.turns || []).map(t => ({ input: t.input || '', expected: t.expected || '' }));
+    state.testCases.push({
+      case_id, slug, categoryKey: cat.key, categoryLabel: cat.label,
+      prefix: cat.prefix, status: 'pending', turns,
+    });
+  });
+  renderCategoryGroup(cat);
+}
+
+// ── Render ───────────────────────────────────────────────────────
+function renderCategoryGroup(cat) {
+  const container = document.getElementById('review-groups');
+  let group = document.getElementById(`group-${cat.key}`);
+  if (!group) {
+    group = document.createElement('div');
+    group.className = 'category-group';
+    group.id = `group-${cat.key}`;
+    group.innerHTML = `
+      <div class="cat-header" onclick="toggleGroup('${cat.key}')">
+        <span>${cat.label}</span>
+        <span id="group-count-${cat.key}" style="font-size:12px;color:#888;font-weight:400"></span>
+        <span class="arrow" id="arrow-${cat.key}">▼</span>
+      </div>
+      <div class="cat-body" id="cat-body-${cat.key}"></div>`;
+    container.appendChild(group);
+  }
+  const body = document.getElementById(`cat-body-${cat.key}`);
+  body.innerHTML = '';
+  const catCases = state.testCases.filter(tc => tc.categoryKey === cat.key);
+  catCases.forEach(tc => body.appendChild(renderCard(tc)));
+  updateGroupCount(cat.key);
+}
+
+function toggleProgress() {
+  const list = document.getElementById('progress-list');
+  const arrow = document.getElementById('arrow-progress');
+  list.classList.toggle('collapsed');
+  arrow.textContent = list.classList.contains('collapsed') ? '▶' : '▼';
+}
+
+function toggleGroup(key) {
+  const body = document.getElementById(`cat-body-${key}`);
+  const arrow = document.getElementById(`arrow-${key}`);
+  body.classList.toggle('collapsed');
+  arrow.textContent = body.classList.contains('collapsed') ? '▶' : '▼';
+}
+
+function renderCard(tc) {
+  const card = document.createElement('div');
+  card.className = 'tc-card';
+  card.id = `card-${tc.case_id}`;
+  card.innerHTML = buildCardHTML(tc);
+  return card;
+}
+
+function buildCardHTML(tc) {
+  const statusLabel = { pending: 'Pending', approved: 'Approved', regenerating: 'Regenerating…' };
+  const statusClass = { pending: 'badge-pending', approved: 'badge-approved', regenerating: 'badge-regenerating' };
+
+  const turnsHTML = tc.turns.map((t, i) => `
+    <div class="tc-turn-block">
+      ${tc.turns.length > 1 ? `<div class="tc-turn-label">Turn ${i + 1}</div>` : ''}
+      <div class="field-label">Input</div>
+      <textarea data-case="${tc.case_id}" data-turn="${i}" data-field="input"
+        onchange="updateField('${tc.case_id}', ${i}, 'input', this.value)"
+        ${tc.status === 'regenerating' ? 'disabled' : ''}>${escHtml(t.input)}</textarea>
+      <div class="field-label">Expected Output</div>
+      <textarea data-case="${tc.case_id}" data-turn="${i}" data-field="expected"
+        onchange="updateField('${tc.case_id}', ${i}, 'expected', this.value)"
+        placeholder="(optional)"
+        ${tc.status === 'regenerating' ? 'disabled' : ''}>${escHtml(t.expected)}</textarea>
+      <div class="sentinel-chips">
+        <span class="sentinel-chip" onclick="setSentinel('${tc.case_id}', ${i}, '[should refuse]')">[should refuse]</span>
+        <span class="sentinel-chip" onclick="setSentinel('${tc.case_id}', ${i}, '[should not comply]')">[should not comply]</span>
+      </div>
+    </div>`).join('');
+
+  const overlay = tc.status === 'regenerating'
+    ? `<div class="card-overlay"><span class="spinner overlay-spinner"></span> Regenerating…</div>` : '';
+
+  return `
+    ${overlay}
+    <div class="tc-card-header">
+      <span class="badge badge-cat">${tc.prefix}</span>
+      <span class="badge ${statusClass[tc.status]}">${statusLabel[tc.status]}</span>
+      <span class="tc-case-id">${escHtml(tc.case_id)}</span>
+    </div>
+    ${turnsHTML}
+    <div class="tc-actions">
+      <button class="btn btn-sm btn-approve" onclick="approveCase('${tc.case_id}')"
+        ${tc.status === 'approved' || tc.status === 'regenerating' ? 'disabled' : ''}>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-1px;margin-right:4px"><path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Approve</button>
+      <button class="btn btn-sm btn-reject" onclick="rejectCase('${tc.case_id}')"
+        ${tc.status === 'regenerating' ? 'disabled' : ''}>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-1px;margin-right:4px"><path d="M10 4a5 5 0 1 0 .5 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M10 1.5V4.5H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Regenerate</button>
+    </div>`;
+}
+
+function refreshCard(case_id) {
+  const tc = state.testCases.find(t => t.case_id === case_id);
+  if (!tc) return;
+  const card = document.getElementById(`card-${case_id}`);
+  if (card) card.innerHTML = buildCardHTML(tc);
+  updateGroupCount(tc.categoryKey);
+  updateExportBar();
+}
+
+function updateGroupCount(key) {
+  const catCases = state.testCases.filter(tc => tc.categoryKey === key);
+  const approved = catCases.filter(tc => tc.status === 'approved').length;
+  const el = document.getElementById(`group-count-${key}`);
+  if (el) el.textContent = `Approved ${approved} / ${catCases.length}`;
+}
+
+function updateExportBar() {
+  const approved = state.testCases.filter(tc => tc.status === 'approved').length;
+  const bar = document.getElementById('export-bar');
+  bar.style.display = approved > 0 ? 'block' : 'none';
+  document.getElementById('export-count').textContent = `${approved} of ${state.testCases.length} cases approved`;
+}
+
+// ── Actions ──────────────────────────────────────────────────────
+function approveCase(case_id) {
+  const tc = state.testCases.find(t => t.case_id === case_id);
+  if (!tc || tc.status === 'regenerating') return;
+  tc.status = 'approved';
+  refreshCard(case_id);
+}
+
+async function rejectCase(case_id) {
+  const tc = state.testCases.find(t => t.case_id === case_id);
+  if (!tc || tc.status === 'regenerating') return;
+
+  tc.status = 'regenerating';
+  refreshCard(case_id);
+
+  const systemPrompt = document.getElementById('system-prompt').value.trim();
+  const extraPrompt = document.getElementById('extra-prompt').value.trim();
+  const turns = parseInt(document.getElementById('turns-input').value) || 1;
+  const knowledgeText = getKnowledgeText();
+
+  const catCases = state.testCases.filter(t => t.categoryKey === tc.categoryKey);
+  const existingSlugs = catCases.filter(t => t.case_id !== case_id).map(t => t.slug);
+  const existingInputs = catCases.filter(t => t.case_id !== case_id).map(t => t.turns[0]?.input).filter(Boolean);
+
+  try {
+    const res = await fetch('/api/regenerate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemPrompt, extraPrompt, knowledgeText,
+        categoryLabel: tc.categoryLabel, turns, existingSlugs, existingInputs,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const newTc = data.testCase;
+    const newSlug = (() => {
+      let s = normalizeSlug(newTc.slug) || `case_regen`;
+      const usedSlugs = catCases.filter(t => t.case_id !== case_id).map(t => t.slug);
+      if (usedSlugs.includes(s)) {
+        let n = 2;
+        while (usedSlugs.includes(`${s}_${n}`)) n++;
+        s = `${s}_${n}`;
+      }
+      return s;
+    })();
+    tc.slug = newSlug;
+    tc.case_id = `${tc.prefix}_${newSlug}`;
+    tc.turns = (newTc.turns || []).map(t => ({ input: t.input || '', expected: t.expected || '' }));
+    tc.status = 'pending';
+
+    // card id changed — replace the element
+    const oldCard = document.getElementById(`card-${case_id}`);
+    if (oldCard) {
+      const newCard = renderCard(tc);
+      oldCard.replaceWith(newCard);
+    }
+  } catch (err) {
+    tc.status = 'pending';
+    const card = document.getElementById(`card-${case_id}`);
+    if (card) {
+      const errDiv = document.createElement('div');
+      errDiv.style.cssText = 'color:#dc2626;font-size:12px;margin-top:8px';
+      errDiv.textContent = `Regeneration failed: ${err.message}`;
+      card.appendChild(errDiv);
+      setTimeout(() => errDiv.remove(), 5000);
+    }
+    refreshCard(case_id);
+  }
+  updateGroupCount(tc.categoryKey);
+  updateExportBar();
+}
+
+function updateField(case_id, turnIdx, field, value) {
+  const tc = state.testCases.find(t => t.case_id === case_id);
+  if (tc && tc.turns[turnIdx]) tc.turns[turnIdx][field] = value;
+}
+
+function setSentinel(case_id, turnIdx, value) {
+  const tc = state.testCases.find(t => t.case_id === case_id);
+  if (!tc) return;
+  tc.turns[turnIdx].expected = value;
+  const ta = document.querySelector(`[data-case="${case_id}"][data-turn="${turnIdx}"][data-field="expected"]`);
+  if (ta) ta.value = value;
+}
+
+// ── Export ───────────────────────────────────────────────────────
+function csvEscape(v) {
+  const s = String(v ?? '');
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function exportCSV() {
+  const approved = state.testCases.filter(tc => tc.status === 'approved');
+  if (!approved.length) return;
+  const rows = [['case_id', 'turn', 'input', 'expected']];
+  approved.forEach(tc => {
+    tc.turns.forEach((t, i) => {
+      rows.push([tc.case_id, i + 1, t.input, t.expected]);
+    });
+  });
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const filename = (document.getElementById('export-filename').value.trim() || 'test_cases') + '.csv';
+  a.href = url; a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Utils ────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
