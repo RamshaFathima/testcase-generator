@@ -204,18 +204,27 @@ textarea { resize: vertical; min-height: 90px; }
     <div class="field-label" style="margin-top:10px">Extra Generation Rules (guardrails)</div>
     <textarea id="extra-prompt" placeholder="Any additional rules for test generation (optional)…" style="min-height:60px"></textarea>
 
-    <hr style="border:none;border-top:1px solid #e5e5e5;margin:18px 0" />
+  </div>
 
-    <!-- Test Settings -->
-    <div class="section-label">Test Settings</div>
-    <div class="row" style="margin-bottom:16px">
-      <label style="font-size:13px;color:#333;white-space:nowrap">Number of turns per case</label>
-      <input type="number" id="turns-input" min="1" max="10" value="1" style="width:70px;margin-left:auto" />
+  <!-- GENERATION SETTINGS -->
+  <div class="card">
+    <!-- Turns -->
+    <div class="section-label">Conversation Turns</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px">
+      <div>
+        <div style="font-size:13px;font-weight:500;color:#333">Turns per test case</div>
+        <div style="font-size:12px;color:#888;margin-top:2px">How many back-and-forth messages each case should contain</div>
+      </div>
+      <input type="number" id="turns-input" min="1" max="10" value="1" style="width:70px;text-align:center;flex-shrink:0" />
     </div>
 
+    <hr style="border:none;border-top:1px solid #e5e5e5;margin:18px 0" />
+
+    <!-- Categories -->
+    <div class="section-label">Test Case Categories</div>
     <div class="cat-grid" id="cat-grid"></div>
 
-    <div style="margin-top:14px">
+    <div style="margin-top:16px">
       <button class="btn btn-primary btn-full" id="generate-btn" onclick="startGeneration()">Generate Test Cases</button>
       <div id="gen-warning" style="font-size:12px;color:#ca8a04;margin-top:6px;display:none"></div>
     </div>
