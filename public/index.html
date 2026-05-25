@@ -144,7 +144,16 @@ textarea { resize: vertical; min-height: 90px; }
 .badge-qa-missing { background: #f3f4f6; color: #888; border: 1px solid #e5e5e5; text-transform: none; letter-spacing: 0; }
 
 .tc-turn-block { margin-bottom: 12px; }
-.tc-turn-label { font-size: 11px; font-weight: 600; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+.tc-turn-label { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 600; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+.turn-remove-btn { background: none; border: none; cursor: pointer; font-size: 15px; line-height: 1; color: #bbb; padding: 0 2px; }
+.turn-remove-btn:hover { color: #dc2626; }
+.turn-action-btn { background: none; border: 1px solid #e5e5e5; border-radius: 3px; cursor: pointer; font-size: 11px; color: #888; padding: 1px 5px; line-height: 1.4; }
+.turn-action-btn:hover { background: #f3f4f6; color: #111; border-color: #bbb; }
+.turn-block-overlay { position:relative; pointer-events:none; }
+.turn-block-overlay::after { content:''; position:absolute; inset:0; background:rgba(255,255,255,0.8); border-radius:4px; display:flex; align-items:center; justify-content:center; }
+.turn-eval-badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; padding:2px 7px; border-radius:4px; margin-top:6px; }
+.turn-eval-pass { background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0; }
+.turn-eval-fail { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; cursor:help; }
 .field-label { font-size: 12px; color: #666; margin-bottom: 4px; margin-top: 8px; }
 .sentinel-chips { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 .sentinel-chip {
@@ -453,7 +462,7 @@ async function startGeneration() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      assignAndRender(cat, data.testCases);
+      assignAndRender(cat, data.testCases, turns);
       setProgState(cat.key, 'done', cat.label, count);
     } catch (err) {
       setProgState(cat.key, 'error', cat.label, count, err.message);
@@ -482,7 +491,7 @@ function normalizeSlug(s) {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
 }
 
-function assignAndRender(cat, rawCases) {
+function assignAndRender(cat, rawCases, maxTurns) {
   const usedSlugs = new Set();
   rawCases.forEach((tc, i) => {
     let slug = normalizeSlug(tc.slug) || `case_${i + 1}`;
@@ -497,11 +506,20 @@ function assignAndRender(cat, rawCases) {
     state.testCases.push({
       case_id, slug, categoryKey: cat.key, categoryLabel: cat.label,
       prefix: cat.prefix, status: 'pending', turns,
+      maxTurns: maxTurns || turns.length,
       evaluation: tc.evaluation || null,
       qa_attempts: tc.qa_attempts || 0,
+      turnStates: turns.map(() => 'idle'),
+      turnEvaluations: turns.map((_, i) => i === 0 ? (tc.evaluation || null) : null),
     });
   });
   renderCategoryGroup(cat);
+  // auto-evaluate turns > 0 in background
+  state.testCases
+    .filter(tc => tc.categoryKey === cat.key)
+    .forEach(tc => {
+      tc.turns.forEach((_, i) => { if (i > 0) evaluateTurn(tc.case_id, i); });
+    });
 }
 
 // ── Render ───────────────────────────────────────────────────────
@@ -554,23 +572,51 @@ function buildCardHTML(tc) {
   const statusLabel = { pending: 'Pending', approved: 'Approved', regenerating: 'Regenerating…' };
   const statusClass = { pending: 'badge-pending', approved: 'badge-approved', regenerating: 'badge-regenerating' };
 
-  const turnsHTML = tc.turns.map((t, i) => `
-    <div class="tc-turn-block">
-      ${tc.turns.length > 1 ? `<div class="tc-turn-label">Turn ${i + 1}</div>` : ''}
+  const disabled = tc.status === 'regenerating';
+  const canRemove = tc.turns.length > 1 && !disabled;
+
+  const turnsHTML = tc.turns.map((t, i) => {
+    const tState = (tc.turnStates || [])[i] || 'idle';
+    const tEval = (tc.turnEvaluations || [])[i] || null;
+    const tBusy = tState !== 'idle';
+
+    let evalBadge = '';
+    if (tEval) {
+      const pass = tEval.factual_accuracy >= 90 && tEval.relevancy >= 90;
+      evalBadge = pass
+        ? `<div class="turn-eval-badge turn-eval-pass">✓ Acc ${tEval.factual_accuracy}% · Rel ${tEval.relevancy}%</div>`
+        : `<div class="turn-eval-badge turn-eval-fail" title="${escHtml(tEval.reason || '')}">⚠ Acc ${tEval.factual_accuracy}% · Rel ${tEval.relevancy}%</div>`;
+    } else if (!tBusy) {
+      evalBadge = `<div style="font-size:11px;color:#bbb;margin-top:5px">Not evaluated — click ⚡ Eval</div>`;
+    }
+
+    return `
+    <div class="tc-turn-block" style="position:relative">
+      ${tBusy ? `<div style="position:absolute;inset:0;background:rgba(255,255,255,0.85);border-radius:4px;z-index:1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:#888"><span class="spinner" style="width:13px;height:13px;border-width:2px"></span>${tState === 'evaluating' ? 'Evaluating…' : 'Regenerating…'}</div>` : ''}
+      <div class="tc-turn-label">
+        <span>Turn ${i + 1}</span>
+        <div style="display:flex;align-items:center;gap:4px">
+          ${!disabled ? `<button class="turn-action-btn" onclick="evaluateTurn('${tc.case_id}', ${i})" title="Evaluate this turn">⚡ Eval</button>` : ''}
+          ${!disabled ? `<button class="turn-action-btn" onclick="regenerateTurn('${tc.case_id}', ${i})" title="Regenerate this turn">↻ Regen</button>` : ''}
+          ${canRemove ? `<button class="turn-remove-btn" onclick="removeTurn('${tc.case_id}', ${i})" title="Remove turn ${i + 1}">×</button>` : ''}
+        </div>
+      </div>
       <div class="field-label">Input</div>
       <textarea data-case="${tc.case_id}" data-turn="${i}" data-field="input"
         onchange="updateField('${tc.case_id}', ${i}, 'input', this.value)"
-        ${tc.status === 'regenerating' ? 'disabled' : ''}>${escHtml(t.input)}</textarea>
+        ${disabled || tBusy ? 'disabled' : ''}>${escHtml(t.input)}</textarea>
       <div class="field-label">Expected Output</div>
       <textarea data-case="${tc.case_id}" data-turn="${i}" data-field="expected"
         onchange="updateField('${tc.case_id}', ${i}, 'expected', this.value)"
         placeholder="(optional)"
-        ${tc.status === 'regenerating' ? 'disabled' : ''}>${escHtml(t.expected)}</textarea>
+        ${disabled || tBusy ? 'disabled' : ''}>${escHtml(t.expected)}</textarea>
       <div class="sentinel-chips">
         <span class="sentinel-chip" onclick="setSentinel('${tc.case_id}', ${i}, '[should refuse]')">[should refuse]</span>
         <span class="sentinel-chip" onclick="setSentinel('${tc.case_id}', ${i}, '[should not comply]')">[should not comply]</span>
       </div>
-    </div>`).join('');
+      <div id="turn-eval-${tc.case_id}-${i}">${evalBadge}</div>
+    </div>`;
+  }).join('');
 
   const overlay = tc.status === 'regenerating'
     ? `<div class="card-overlay"><span class="spinner overlay-spinner"></span> Regenerating…</div>` : '';
@@ -678,6 +724,8 @@ async function rejectCase(case_id) {
     tc.turns = (newTc.turns || []).map(t => ({ input: t.input || '', expected: t.expected || '' }));
     tc.evaluation = newTc.evaluation || null;
     tc.qa_attempts = newTc.qa_attempts || 0;
+    tc.turnStates = tc.turns.map(() => 'idle');
+    tc.turnEvaluations = tc.turns.map((_, i) => i === 0 ? (tc.evaluation || null) : null);
     tc.status = 'pending';
 
     // card id changed — replace the element
@@ -686,6 +734,8 @@ async function rejectCase(case_id) {
       const newCard = renderCard(tc);
       oldCard.replaceWith(newCard);
     }
+    // auto-evaluate turns > 0
+    tc.turns.forEach((_, i) => { if (i > 0) evaluateTurn(tc.case_id, i); });
   } catch (err) {
     tc.status = 'pending';
     const card = document.getElementById(`card-${case_id}`);
@@ -704,7 +754,81 @@ async function rejectCase(case_id) {
 
 function updateField(case_id, turnIdx, field, value) {
   const tc = state.testCases.find(t => t.case_id === case_id);
-  if (tc && tc.turns[turnIdx]) tc.turns[turnIdx][field] = value;
+  if (!tc || !tc.turns[turnIdx]) return;
+  tc.turns[turnIdx][field] = value;
+  tc.turnEvaluations[turnIdx] = null;
+  const wrapper = document.getElementById(`turn-eval-${case_id}-${turnIdx}`);
+  if (wrapper) wrapper.innerHTML = `<div style="font-size:11px;color:#bbb;margin-top:5px">Not evaluated — click ⚡ Eval</div>`;
+}
+
+function removeTurn(case_id, turnIdx) {
+  const tc = state.testCases.find(t => t.case_id === case_id);
+  if (!tc || tc.turns.length <= 1) return;
+  tc.turns.splice(turnIdx, 1);
+  tc.turnStates.splice(turnIdx, 1);
+  tc.turnEvaluations.splice(turnIdx, 1);
+  refreshCard(case_id);
+}
+
+async function regenerateTurn(case_id, turnIdx) {
+  const tc = state.testCases.find(t => t.case_id === case_id);
+  if (!tc || tc.status === 'regenerating') return;
+  const systemPrompt = document.getElementById('system-prompt').value.trim();
+  const knowledgeText = getKnowledgeText();
+
+  tc.turnStates[turnIdx] = 'regenerating';
+  refreshCard(case_id);
+
+  try {
+    const res = await fetch('/api/regenerate-turn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ systemPrompt, knowledgeText, categoryLabel: tc.categoryLabel, turns: tc.turns, turnIndex: turnIdx }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    tc.turns[turnIdx] = { input: data.turn.input || '', expected: data.turn.expected || '' };
+    tc.turnEvaluations[turnIdx] = null;
+  } catch (err) {
+    const card = document.getElementById(`card-${case_id}`);
+    if (card) {
+      const errDiv = document.createElement('div');
+      errDiv.style.cssText = 'color:#dc2626;font-size:12px;margin-top:6px;padding:0 16px 8px';
+      errDiv.textContent = `Turn ${turnIdx + 1} regeneration failed: ${err.message}`;
+      card.appendChild(errDiv);
+      setTimeout(() => errDiv.remove(), 5000);
+    }
+  } finally {
+    tc.turnStates[turnIdx] = 'idle';
+    refreshCard(case_id);
+    evaluateTurn(case_id, turnIdx);
+  }
+}
+
+async function evaluateTurn(case_id, turnIdx) {
+  const tc = state.testCases.find(t => t.case_id === case_id);
+  if (!tc || tc.status === 'regenerating' || (tc.turnStates[turnIdx] && tc.turnStates[turnIdx] !== 'idle')) return;
+  const systemPrompt = document.getElementById('system-prompt').value.trim();
+  const knowledgeText = getKnowledgeText();
+
+  tc.turnStates[turnIdx] = 'evaluating';
+  refreshCard(case_id);
+
+  try {
+    const res = await fetch('/api/evaluate-turn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ systemPrompt, knowledgeText, categoryLabel: tc.categoryLabel, turns: tc.turns, turnIndex: turnIdx }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    tc.turnEvaluations[turnIdx] = data.evaluation;
+  } catch (err) {
+    tc.turnEvaluations[turnIdx] = { factual_accuracy: 0, relevancy: 0, reason: err.message };
+  } finally {
+    tc.turnStates[turnIdx] = 'idle';
+    refreshCard(case_id);
+  }
 }
 
 function setSentinel(case_id, turnIdx, value) {
@@ -713,6 +837,9 @@ function setSentinel(case_id, turnIdx, value) {
   tc.turns[turnIdx].expected = value;
   const ta = document.querySelector(`[data-case="${case_id}"][data-turn="${turnIdx}"][data-field="expected"]`);
   if (ta) ta.value = value;
+  tc.turnEvaluations[turnIdx] = null;
+  const wrapper = document.getElementById(`turn-eval-${case_id}-${turnIdx}`);
+  if (wrapper) wrapper.innerHTML = `<div style="font-size:11px;color:#bbb;margin-top:5px">Not evaluated — click ⚡ Eval</div>`;
 }
 
 // ── Export ───────────────────────────────────────────────────────
