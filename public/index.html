@@ -287,7 +287,7 @@ const state = {
   // total row
   const totalDiv = document.createElement('div');
   totalDiv.className = 'cat-total';
-  totalDiv.innerHTML = `<span>Total</span><span id="total-display">50 / 50</span>`;
+  totalDiv.innerHTML = `<span>Total</span><span id="total-display">50</span>`;
   grid.appendChild(totalDiv);
   updateTotal();
 })();
@@ -299,9 +299,9 @@ function getTotal() {
 function updateTotal() {
   const t = getTotal();
   const el = document.getElementById('total-display');
-  el.textContent = `${t} / 50`;
-  el.className = t > 50 || t === 0 ? 'total-over' : '';
-  document.getElementById('generate-btn').disabled = t > 50 || t === 0;
+  el.textContent = `${t}`;
+  el.className = t === 0 ? 'total-over' : '';
+  document.getElementById('generate-btn').disabled = t === 0;
 }
 
 // ── Knowledge base sources ───────────────────────────────────────
