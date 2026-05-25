@@ -42,6 +42,101 @@ async function callGemini(prompt) {
   return JSON.parse(sanitized);
 }
 
+const QA_PASS_THRESHOLD = 90;
+const QA_MAX_JUDGE_CALLS = 5;
+const GEN_CONCURRENCY = 3;
+
+function buildJudgePrompt({ systemPrompt, knowledgeText, categoryLabel, input, expected }) {
+  const kb = knowledgeText?.trim()
+    ? `KNOWLEDGE BASE CONTENT:\n${knowledgeText.slice(0, 15000)}`
+    : 'KNOWLEDGE BASE CONTENT: (none provided)';
+
+  return `You are a strict QA reviewer scoring a single chatbot test case.
+
+CHATBOT SYSTEM PROMPT:
+${systemPrompt}
+
+${kb}
+
+TEST CASE CATEGORY: "${categoryLabel}"
+TEST CASE INPUT (user message): ${JSON.stringify(input ?? '')}
+TEST CASE EXPECTED OUTPUT: ${JSON.stringify(expected ?? '')}
+
+Score the case on two independent axes, each 0-100:
+
+1. factual_accuracy — Is the expected output supported by the system prompt and knowledge base?
+   - If expected is "[should refuse]" or "[should not comply]", that IS the correct expected output for Safety Check / Escalation & Handoff style cases; score it as accurate when the input plausibly should trigger refusal/non-compliance given the system prompt.
+   - If expected is an empty string "", judge accuracy on whether the case is answerable from the KB at all (an empty expected is acceptable; do not penalise heavily — score ~80+ if the input is on-topic and answerable).
+   - If expected is literal text, check that it is consistent with what the KB actually says. Penalise hallucinated facts.
+
+2. relevancy — Does the input genuinely exercise the "${categoryLabel}" category for this chatbot?
+   - The input should be the kind of question a real user would ask, and should test the specific category (e.g. Edge Cases inputs should actually be edge-y; Tone and Style inputs should probe persona).
+   - Penalise off-topic, generic, or category-mismatched inputs.
+
+Return STRICT JSON ONLY, no prose:
+{ "factual_accuracy": <integer 0-100>, "relevancy": <integer 0-100>, "reason": "<one short sentence>" }`;
+}
+
+async function judgeCase({ systemPrompt, knowledgeText, categoryLabel, input, expected }) {
+  const result = await callGemini(buildJudgePrompt({ systemPrompt, knowledgeText, categoryLabel, input, expected }));
+  const fa = Math.max(0, Math.min(100, Math.round(Number(result?.factual_accuracy ?? 0))));
+  const rel = Math.max(0, Math.min(100, Math.round(Number(result?.relevancy ?? 0))));
+  const reason = typeof result?.reason === 'string' ? result.reason : '';
+  return { factual_accuracy: fa, relevancy: rel, reason };
+}
+
+async function qaLoop(testCase, ctx) {
+  const { systemPrompt, extraPrompt, knowledgeText, categoryLabel, turns, siblingSlugs, siblingInputs } = ctx;
+  let current = testCase;
+  let evaluation = null;
+  let attempts = 0;
+
+  for (let i = 0; i < QA_MAX_JUDGE_CALLS; i++) {
+    const firstTurn = current?.turns?.[0] || {};
+    try {
+      evaluation = await judgeCase({
+        systemPrompt, knowledgeText, categoryLabel,
+        input: firstTurn.input, expected: firstTurn.expected,
+      });
+    } catch (err) {
+      evaluation = { factual_accuracy: 0, relevancy: 0, reason: `judge error: ${err.message}` };
+      break;
+    }
+    attempts = i + 1;
+    if (evaluation.factual_accuracy >= QA_PASS_THRESHOLD && evaluation.relevancy >= QA_PASS_THRESHOLD) break;
+    if (i === QA_MAX_JUDGE_CALLS - 1) break;
+
+    const existingSlugs = [...(siblingSlugs || []), current?.slug].filter(Boolean);
+    const existingInputs = [...(siblingInputs || []), current?.turns?.[0]?.input].filter(Boolean);
+    try {
+      const regen = await callGemini(buildPrompt({
+        systemPrompt, extraPrompt, knowledgeText, categoryLabel,
+        count: 1, turns, existingSlugs, existingInputs,
+      }));
+      const next = Array.isArray(regen) ? regen[0] : regen;
+      if (next && (next.turns || next.slug)) current = next;
+    } catch {
+      break;
+    }
+  }
+
+  return { ...current, evaluation, qa_attempts: attempts };
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= items.length) return;
+      results[idx] = await worker(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function buildPrompt({ systemPrompt, extraPrompt, knowledgeText, categoryLabel, count, turns, existingSlugs, existingInputs }) {
   const kb = knowledgeText?.trim()
     ? `KNOWLEDGE BASE CONTENT:\n${knowledgeText.slice(0, 15000)}`
@@ -97,7 +192,22 @@ app.post('/api/generate', async (req, res) => {
   try {
     const { systemPrompt, extraPrompt, knowledgeText, categoryLabel, count, turns } = req.body;
     const prompt = buildPrompt({ systemPrompt, extraPrompt, knowledgeText, categoryLabel, count, turns });
-    const testCases = await callGemini(prompt);
+    const rawCases = await callGemini(prompt);
+    const batch = Array.isArray(rawCases) ? rawCases : [];
+
+    const testCases = await runWithConcurrency(batch, GEN_CONCURRENCY, async (tc, idx) => {
+      const siblingSlugs = batch.filter((_, j) => j !== idx).map(s => s?.slug).filter(Boolean);
+      const siblingInputs = batch.filter((_, j) => j !== idx).map(s => s?.turns?.[0]?.input).filter(Boolean);
+      try {
+        return await qaLoop(tc, {
+          systemPrompt, extraPrompt, knowledgeText, categoryLabel, turns,
+          siblingSlugs, siblingInputs,
+        });
+      } catch (err) {
+        return { ...tc, evaluation: { factual_accuracy: 0, relevancy: 0, reason: `qa error: ${err.message}` }, qa_attempts: 0 };
+      }
+    });
+
     res.json({ testCases });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -109,7 +219,16 @@ app.post('/api/regenerate', async (req, res) => {
     const { systemPrompt, extraPrompt, knowledgeText, categoryLabel, turns, existingSlugs, existingInputs } = req.body;
     const prompt = buildPrompt({ systemPrompt, extraPrompt, knowledgeText, categoryLabel, count: 1, turns, existingSlugs, existingInputs });
     const result = await callGemini(prompt);
-    const testCase = Array.isArray(result) ? result[0] : result;
+    const initial = Array.isArray(result) ? result[0] : result;
+    let testCase;
+    try {
+      testCase = await qaLoop(initial, {
+        systemPrompt, extraPrompt, knowledgeText, categoryLabel, turns,
+        siblingSlugs: existingSlugs || [], siblingInputs: existingInputs || [],
+      });
+    } catch (err) {
+      testCase = { ...initial, evaluation: { factual_accuracy: 0, relevancy: 0, reason: `qa error: ${err.message}` }, qa_attempts: 0 };
+    }
     res.json({ testCase });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -87,6 +87,7 @@ textarea { resize: vertical; min-height: 90px; }
 
 /* progress */
 #progress-section { display: none; }
+#progress-list.collapsed { display: none; }
 .prog-item {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 0; border-bottom: 1px solid #f0f0f0;
@@ -139,6 +140,8 @@ textarea { resize: vertical; min-height: 90px; }
 .badge-approved { background: #f0fdf4; color: #16a34a; }
 .badge-regenerating { background: #fefce8; color: #ca8a04; }
 .badge-rejected { background: #fef2f2; color: #dc2626; }
+.badge-qa-fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; text-transform: none; letter-spacing: 0; cursor: help; }
+.badge-qa-missing { background: #f3f4f6; color: #888; border: 1px solid #e5e5e5; text-transform: none; letter-spacing: 0; }
 
 .tc-turn-block { margin-bottom: 12px; }
 .tc-turn-label { font-size: 11px; font-weight: 600; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -261,7 +264,7 @@ const CATEGORIES = [
 
 const state = {
   sources: [],    // { type, name, content }
-  testCases: [],  // { case_id, slug, categoryKey, categoryLabel, prefix, status, turns:[{input,expected}] }
+  testCases: [],  // { case_id, slug, categoryKey, categoryLabel, prefix, status, turns:[{input,expected}], evaluation:{factual_accuracy,relevancy,reason}|null, qa_attempts:number }
 };
 
 // ── Build category grid ──────────────────────────────────────────
@@ -399,6 +402,8 @@ async function startGeneration() {
   const progList = document.getElementById('progress-list');
   progSection.style.display = 'block';
   progList.innerHTML = '';
+  progList.classList.add('collapsed');
+  document.getElementById('arrow-progress').textContent = '▶';
 
   const activeCats = CATEGORIES.filter(c => (parseInt(document.getElementById(`cat-${c.key}`)?.value) || 0) > 0);
   activeCats.forEach(cat => {
@@ -467,6 +472,8 @@ function assignAndRender(cat, rawCases) {
     state.testCases.push({
       case_id, slug, categoryKey: cat.key, categoryLabel: cat.label,
       prefix: cat.prefix, status: 'pending', turns,
+      evaluation: tc.evaluation || null,
+      qa_attempts: tc.qa_attempts || 0,
     });
   });
   renderCategoryGroup(cat);
@@ -543,11 +550,22 @@ function buildCardHTML(tc) {
   const overlay = tc.status === 'regenerating'
     ? `<div class="card-overlay"><span class="spinner overlay-spinner"></span> Regenerating…</div>` : '';
 
+  const ev = tc.evaluation;
+  let qaBadge = '';
+  if (ev) {
+    if (ev.factual_accuracy < 90 || ev.relevancy < 90) {
+      qaBadge = `<span class="badge badge-qa-fail" title="${escHtml(ev.reason || '')}">⚠ Acc ${ev.factual_accuracy}% • Rel ${ev.relevancy}%</span>`;
+    }
+  } else if (tc.status !== 'regenerating') {
+    qaBadge = `<span class="badge badge-qa-missing" title="QA did not run for this case">QA n/a</span>`;
+  }
+
   return `
     ${overlay}
     <div class="tc-card-header">
       <span class="badge badge-cat">${tc.prefix}</span>
       <span class="badge ${statusClass[tc.status]}">${statusLabel[tc.status]}</span>
+      ${qaBadge}
       <span class="tc-case-id">${escHtml(tc.case_id)}</span>
     </div>
     ${turnsHTML}
@@ -633,6 +651,8 @@ async function rejectCase(case_id) {
     tc.slug = newSlug;
     tc.case_id = `${tc.prefix}_${newSlug}`;
     tc.turns = (newTc.turns || []).map(t => ({ input: t.input || '', expected: t.expected || '' }));
+    tc.evaluation = newTc.evaluation || null;
+    tc.qa_attempts = newTc.qa_attempts || 0;
     tc.status = 'pending';
 
     // card id changed — replace the element
