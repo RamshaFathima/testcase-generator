@@ -252,6 +252,8 @@ textarea { resize: vertical; min-height: 90px; }
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
+document.getElementById('system-prompt').addEventListener('input', updateTotal);
+
 const CATEGORIES = [
   { key: 'factual_accuracy',   label: 'Factual Accuracy',     prefix: 'FA', count: 15 },
   { key: 'process_guidance',   label: 'Process & Guidance',   prefix: 'PG', count: 7  },
@@ -301,7 +303,22 @@ function updateTotal() {
   const el = document.getElementById('total-display');
   el.textContent = `${t}`;
   el.className = t === 0 ? 'total-over' : '';
-  document.getElementById('generate-btn').disabled = t === 0;
+
+  const hasPrompt = document.getElementById('system-prompt').value.trim().length > 0;
+  const hasKB = state.sources.length > 0;
+  const missing = [];
+  if (!hasPrompt) missing.push('system prompt');
+  if (!hasKB) missing.push('knowledge base');
+  if (t === 0) missing.push('at least one test case');
+
+  const w = document.getElementById('gen-warning');
+  if (missing.length > 0) {
+    w.textContent = `Required: ${missing.join(' and ')}.`;
+    w.style.display = 'block';
+  } else {
+    w.style.display = 'none';
+  }
+  document.getElementById('generate-btn').disabled = missing.length > 0;
 }
 
 // ── Knowledge base sources ───────────────────────────────────────
@@ -338,6 +355,7 @@ function renderPills() {
       <button onclick="removeSource(${i})" title="Remove">×</button>`;
     row.appendChild(pill);
   });
+  updateTotal();
 }
 
 async function extractFileText(file) {
@@ -385,11 +403,9 @@ async function startGeneration() {
   const turns = parseInt(document.getElementById('turns-input').value) || 1;
   const knowledgeText = getKnowledgeText();
 
-  if (!systemPrompt) {
-    const w = document.getElementById('gen-warning');
-    w.textContent = 'System prompt is empty — generating without context.';
-    w.style.display = 'block';
-    setTimeout(() => { w.style.display = 'none'; }, 4000);
+  if (!systemPrompt || state.sources.length === 0) {
+    updateTotal();
+    return;
   }
 
   state.testCases = [];
